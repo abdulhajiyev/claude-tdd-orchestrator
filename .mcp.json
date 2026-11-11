@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "graphify": {
+      "type": "http",
+      "url": "https://graphify-mcp.hajiyev.space/mcp"
+    }
+  }
+}
