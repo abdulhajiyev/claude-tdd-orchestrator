@@ -2,7 +2,10 @@
   "mcpServers": {
     "graphify": {
       "type": "http",
-      "url": "https://graphify-mcp.hajiyev.space/mcp"
+      "url": "https://graphify-mcp.hajiyev.space/mcp",
+      "headers": {
+        "Authorization": "Bearer ${GRAPHIFY_TOKEN:-}"
+      }
     }
   }
 }

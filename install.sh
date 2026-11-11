@@ -4,16 +4,24 @@
 #   ./install.sh --global            install once into ~/.claude, works in every project
 #   ./install.sh [path/to/project]   install into one project (defaults to current dir)
 #   add --force to overwrite agents/commands/hook from an older version
+#
+# graphify key (never stored in this repo):
+#   --graphify-token       prompt for the key (hidden input, stays out of shell history)
+#   GRAPHIFY_TOKEN=...     or pass it via the environment
+#   GRAPHIFY_HEADER="X-API-Key:"   header prefix if not "Authorization: Bearer"
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GRAPHIFY_URL="https://graphify-mcp.hajiyev.space/mcp"
-GLOBAL=0; FORCE=0; TARGET="$PWD"
+GRAPHIFY_HEADER="${GRAPHIFY_HEADER:-Authorization: Bearer}"
+GRAPHIFY_TOKEN="${GRAPHIFY_TOKEN:-}"
+GLOBAL=0; FORCE=0; ASK_TOKEN=0; TARGET="$PWD"
 for a in "$@"; do
   case "$a" in
     --global) GLOBAL=1 ;;
     --force)  FORCE=1 ;;
-    -h|--help) sed -n '2,7p' "$0"; exit 0 ;;
+    --graphify-token) ASK_TOKEN=1 ;;
+    -h|--help) sed -n '2,12p' "$0"; exit 0 ;;
     *) TARGET="$a" ;;
   esac
 done
@@ -77,14 +85,31 @@ fs.writeFileSync(dst, JSON.stringify(s, null, 2) + "\n");
 EOF
 
 echo "==> graphify MCP"
+if [ "$ASK_TOKEN" = 1 ] && [ -z "$GRAPHIFY_TOKEN" ]; then
+  printf "   graphify key (input hidden): "
+  read -rs GRAPHIFY_TOKEN; echo
+fi
 if [ "$GLOBAL" = 1 ]; then
-  claude mcp add --transport http --scope user graphify "$GRAPHIFY_URL" 2>/dev/null \
-    || echo "   graphify already configured at user scope (or add failed: check with 'claude mcp list')"
+  if [ -n "$GRAPHIFY_TOKEN" ]; then
+    # Replace any existing entry so the new key takes effect.
+    claude mcp remove graphify --scope user >/dev/null 2>&1 || true
+    claude mcp add --transport http --scope user graphify "$GRAPHIFY_URL" \
+      --header "$GRAPHIFY_HEADER $GRAPHIFY_TOKEN" >/dev/null \
+      && echo "   graphify added with key (stored in ~/.claude.json, not in this repo)"
+  else
+    # No key given: keep an existing entry (and its key) untouched.
+    claude mcp add --transport http --scope user graphify "$GRAPHIFY_URL" >/dev/null 2>&1 \
+      && echo "   graphify added WITHOUT a key; if it fails with 401, rerun with --graphify-token" \
+      || echo "   graphify already configured; existing key kept"
+  fi
 elif [ -f "$TARGET/.mcp.json" ]; then
   echo "!! $TARGET/.mcp.json exists — add the graphify entry from this bundle's .mcp.json by hand"
 else
+  # The committed file references ${GRAPHIFY_TOKEN}; the key itself lives in your shell env.
   cp "$HERE/.mcp.json" "$TARGET/.mcp.json"
+  [ -n "$GRAPHIFY_TOKEN" ] || echo "   set GRAPHIFY_TOKEN in your shell profile so the project's .mcp.json can authenticate"
 fi
+unset GRAPHIFY_TOKEN
 
 echo "==> Rules -> $RULES"
 node - "$HERE/CLAUDE.md" "$RULES" <<'EOF'

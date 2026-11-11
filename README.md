@@ -86,7 +86,7 @@ cd claude-tdd-orchestrator
 ### Global (recommended): once per machine, every project
 
 ```bash
-bash install.sh --global
+bash install.sh --global --graphify-token
 ```
 
 Installs into `~/.claude`:
@@ -94,7 +94,7 @@ Installs into `~/.claude`:
 - commands → `~/.claude/commands/tdd{,-design,-status,-phase}.md`
 - guard → `~/.claude/hooks/tdd-guard.mjs`
 - plugins + guard hook **merged** into `~/.claude/settings.json` (backup: `settings.json.bak`)
-- graphify as a user-scope MCP server (`claude mcp add --scope user`)
+- graphify as a user-scope MCP server (`claude mcp add --scope user`), with your key if given
 - rules in a marked block in `~/.claude/CLAUDE.md` (your own content is untouched)
 
 `/tdd` creates `.tdd/` in each project on first run and adds it to `.gitignore`.
@@ -107,10 +107,60 @@ bash install.sh ~/path/to/project
 
 Same files under `<project>/.claude/`, graphify in `<project>/.mcp.json`, rules in `<project>/CLAUDE.md`. An existing `.mcp.json` is not overwritten.
 
+### graphify authentication
+
+The graphify server needs an API key. **The key is never stored in this repo.**
+
+**Global install: key goes into `~/.claude.json` on that machine only**
+```bash
+bash install.sh --global --graphify-token      # prompts for the key, input hidden
+```
+Or from the environment, e.g. pulled from a password manager:
+```bash
+GRAPHIFY_TOKEN="$(op read op://Personal/graphify/token)" bash install.sh --global
+```
+Avoid typing `GRAPHIFY_TOKEN=abc123 bash install.sh …` with the literal key: it ends up in your shell history.
+
+Rerunning the installer **without** a key keeps the existing graphify entry and its key. Passing a key replaces it, which is how you rotate it.
+
+**Per-project install: key comes from your shell**
+
+The committed `.mcp.json` only references the variable:
+```json
+"headers": { "Authorization": "Bearer ${GRAPHIFY_TOKEN:-}" }
+```
+Put the key in your shell profile (`~/.zshrc` on macOS, `~/.bashrc` on WSL/Linux), not in the repo:
+```bash
+export GRAPHIFY_TOKEN="..."
+```
+
+**Manual setup or rotation without the installer**
+```bash
+claude mcp remove graphify -s user
+claude mcp add --transport http --scope user graphify \
+  https://graphify-mcp.hajiyev.space/mcp \
+  --header "Authorization: Bearer YOUR_TOKEN"
+claude mcp get graphify        # Status: ✔ Connected
+```
+
+**Different header?** If the server expects e.g. `X-API-Key`, set `GRAPHIFY_HEADER="X-API-Key:"` when running the installer, and change the header in `.mcp.json` to match.
+
+**Testing a key directly**
+```bash
+curl -i -X POST https://graphify-mcp.hajiyev.space/mcp \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"test","version":"1"}}}'
+```
+`200` means the key and header are right; `401` means one of them isn't.
+
+**Tools exposed:** `query_graph`, `get_node`, `get_neighbors`, `get_community`, `god_nodes`, `graph_stats`, `shortest_path`, `get_pr_impact`, `list_prs`, `triage_prs`. The agents get them through `mcp__graphify` in their `tools:` lists.
+
 ### Updating
 
 ```bash
-git pull && bash install.sh --global --force
+git pull && bash install.sh --global --force     # existing graphify key is kept
 ```
 
 Safe to rerun: settings are merged, the guard hook is replaced not duplicated, the rules block is swapped in place.
@@ -166,7 +216,7 @@ For trivial fixes, skip design: write a two-line plan in `docs/plans/` and pass 
 | Design model | `model:` in `commands/tdd-design.md` |
 | Caveman level | step 0 of `commands/tdd.md` (`lite` / `full` / `ultra`) |
 | graphify URL | `.mcp.json`, and `GRAPHIFY_URL` in `install.sh` |
-| graphify auth | add `"headers": {"Authorization": "Bearer …"}` to its `.mcp.json` entry, or `--header` on `claude mcp add` |
+| graphify key | `--graphify-token` or `GRAPHIFY_TOKEN`; header prefix via `GRAPHIFY_HEADER`. See *graphify authentication* |
 
 ---
 
@@ -200,6 +250,8 @@ install.sh                  --global | <project> [--force]
 | Hooks fail with `node: not found` | Node isn't on the non-interactive PATH (common with nvm); install a system Node |
 | `/tdd-design` errors on the model | No Fable access: set `model: opus` in `commands/tdd-design.md` |
 | An agent can't see graphify | List graphify's exact tool names in the agent's `tools:` line, or remove that line |
+| `claude mcp get graphify` shows `Dynamic Client Registration rejected (HTTP 401)` | No key was sent, so Claude Code tried OAuth sign-in, which this server doesn't offer. Add the key: `bash install.sh --global --graphify-token` |
+| graphify connects on one machine but not another | Keys live per machine in `~/.claude.json`; run the installer with `--graphify-token` on each |
 | Both global and project installs present | Project copies take priority and the guard runs twice; remove the project's `tdd-*` agents/commands/hook |
 
 ---
